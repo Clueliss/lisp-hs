@@ -1,30 +1,28 @@
 module Test where
 
-import Parser
-import LispValue
-import Evaluator
-
+import Control.Exception
 import Data.Maybe (fromJust)
 import Data.Map (insert)
 
-intoIdents :: [LispValue] -> Maybe [String]
-intoIdents v = sequenceA $ map f v
-    where
-        f (LispIdent i) = Just i
-        f _ = Nothing
-
-
-fun :: LispEnv -> [LispValue] -> Maybe LispValue
-fun env [LispList paramidents, bodyexpr] = Just $ LispIntrinsicFun $ \env params -> do
-        ids <- intoIdents paramidents
-        vals <- sequenceA $ map (lispEval env) params
-
-        lispEval (lispEnvInsertAll (zip ids vals) env) bodyexpr
-
-fun env _ = Nothing
+import LispParser
+import LispExpr
+import LispEval
 
 
 
-env = (insert "fun" (LispIntrinsicFun fun) emptyLispEnv)
+assertEq :: Eq a => a -> a -> String -> e -> e
+assertEq a b msg expr = if a == b
+    then expr
+    else error msg
 
-test = lispEval env (fst $ fromJust (parse lispValueParser "((fun (a b) a a) 5 123)"))
+
+doEval :: LispEnv -> String -> Maybe (LispEnv, LispExpr)
+doEval env input = do
+    (expr, rest) <- parse lispExprParser input
+    lispEval env expr
+
+
+
+env = emptyLispEnv
+
+test = doEval env "{ fun f (x y) = let z = (x + y) in (3 * z); (f 1 2) }"
