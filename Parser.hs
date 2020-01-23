@@ -1,17 +1,18 @@
 module Parser where
 
 import Control.Applicative
+import Control.Monad (guard)
 import Data.Char
 import Text.Read
 
 
 newtype Parser a = Parser {
-    parse :: String -> Maybe (a, String)
+    runParser :: String -> Maybe (a, String)
 }
 
 instance Functor Parser where
     fmap f p = Parser $ \input -> do
-        (val, rest) <- parse p input
+        (val, rest) <- runParser p input
         Just (f val, rest)
 
 
@@ -19,8 +20,8 @@ instance Applicative Parser where
     pure x = Parser $ \input -> Just (x, input)
 
     (<*>) f p = Parser $ \input -> do
-        (func, rest) <- parse f input
-        (val, rest'') <- parse p rest
+        (func, rest) <- runParser f input
+        (val, rest'') <- runParser p rest
 
         Just (func val, rest'')
 
@@ -28,8 +29,12 @@ instance Applicative Parser where
 instance Alternative Parser where
     empty = Parser $ \input -> Nothing
 
-    (<|>) p1 p2 = Parser $ \input -> parse p1 input <|> parse p2 input
+    (<|>) p1 p2 = Parser $ \input -> runParser p1 input <|> runParser p2 input
 
+
+
+succeed :: a -> Parser a
+succeed = pure
 
 
 charP :: Char -> Parser Char
@@ -55,6 +60,10 @@ escapedCharParser =
     ('\t' <$ strP "\\t")
 
 
+charParser :: Parser Char
+charParser = normalCharParser <|> escapedCharParser
+
+
 sepBy :: Parser s -> Parser a -> Parser [a]
 sepBy sep elem = (:) <$> elem <*> many (sep *> elem) <|> pure []
 
@@ -68,7 +77,7 @@ parseIf f = Parser $ g
 parseOpt :: Parser a -> a -> Parser a
 parseOpt p def = Parser $ f
     where
-        f input = case parse p input of
+        f input = case runParser p input of
             (Just x) -> Just x
             Nothing  -> Just (def, input)
         
@@ -79,11 +88,11 @@ spanP f = Parser $ \input -> Just (span f input)
 
 nonEmpty :: Parser [a] -> Parser [a]
 nonEmpty p = Parser $ \input -> do
-    (val, rest) <- parse p input
+    (val, rest) <- runParser p input
 
-    if null val
-        then Nothing
-        else Just (val, rest)
+    guard (not (null val))
+
+    Just (val, rest)
 
 
 wsP :: Parser String
@@ -104,10 +113,17 @@ identParser = (:) <$> alphaParser <*> (many (alphaNumParser <|> charP '_'))
 
 floatParser :: Parser Double
 floatParser = Parser $ \input -> do
-    (num, rest) <- parse (spanP (liftA2 (||) isDigit (== '.'))) input
+    (num, rest) <- runParser (spanP (liftA2 (||) isDigit (== '.'))) input
+    
+    guard (not (null num))
 
-    if null num
-        then Nothing
-        else do
-            numval <- readMaybe num
-            Just (numval, rest)
+    numval <- readMaybe num
+    Just (numval, rest)
+
+
+maybeParse :: Parser a -> Parser (Maybe a)
+maybeParse p = Parser $ \input -> Just (f (runParser p input) input)
+    where
+        f :: Maybe (a, String) -> String -> (Maybe a, String)
+        f (Just (val, rest)) _ = (Just val, rest)
+        f Nothing input' = (Nothing, input')
