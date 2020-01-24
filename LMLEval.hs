@@ -1,10 +1,26 @@
 module LMLEval where
 
 import Control.Monad (guard)
+import Text.Printf
 
 import LMLExpr
 import LMLParser
 import Parser
+
+
+lmlTypecheck :: LMLType -> LMLValue -> Bool
+lmlTypecheck t v = lmlTypecheck' t (lmlGetType v)
+    where
+        lmlTypecheck' (LMLFunctionType lrettype largtypes) (LMLFunctionType rrettype rargtypes) 
+            = (lmlTypecheck' lrettype rrettype) && (and $ map (uncurry lmlTypecheck') (zip largtypes rargtypes))
+
+        lmlTypecheck' (LMLTrivialType "") _ = True
+        lmlTypecheck' (LMLTrivialType l) (LMLTrivialType r)
+            | l == r = True
+
+        lmlTypecheck' et vt 
+            | et == vt  = True
+            | otherwise = error (printf "typecheck failed: expected type: %s got: %s instead" (show et) (show vt))
 
 
 lmlGenCompoundType :: String -> [[String]] -> LMLEnv -> Maybe LMLType
@@ -15,14 +31,14 @@ lmlGenCompoundType tname (a:as) env = LMLCompoundType tname <$> (sequence $ map 
 
         detType t@(LMLTrivialType name)
             | name == tname = LMLSelfType name
-        detType t = lmlDetermineType t env
+        detType t = lmlDetermineType env t
 
 
 
 lmlGenTypeCTor :: LMLType -> String  -> [LMLType] -> LMLValue
 lmlGenTypeCTor rettype name []                                       = LMLValueCompound (LMLCompound rettype name [])
 lmlGenTypeCTor rettype@(LMLCompoundType rettypename _) name argtypes = LMLValueFunc $ LMLFunction rettype argtypes $ \env args -> do
-    guard $ and $ map (uncurry (==)) $ zip (map collapseSelfType argtypes) (map lmlGetType args)
+    guard $ and $ map (uncurry lmlTypecheck) $ zip (map collapseSelfType argtypes) args
     Just (env, LMLValueCompound (LMLCompound rettype name args))
 
     where
@@ -48,16 +64,17 @@ lmlCurry (LMLFunction rt at f) curriedArgs = LMLFunction rt (drop (length currie
 
 
 lmlEval :: LMLEnv -> LMLAst -> Maybe (LMLEnv, LMLValue)
+lmlEval env (LMLAstSeq []) = Just (env, LMLValueNil)
 lmlEval env (LMLAstSeq (x:xs)) = case lmlEval env x of
     Just (env', LMLValueFunc func@(LMLFunction rettype argtypes f)) -> do
+        
         (env'', args) <- lmlSequencedEval env' xs
 
-        -- todo figure out how to typecheck here (complication: SelfTypes), i may have to typecheck inside the function
+        case compare (length args) (length argtypes) of
+            GT -> error (printf "supplied too many args to function expected: %d got: %d" (length args) (length argtypes))
+            LT -> Just (env'', LMLValueFunc $ lmlCurry func args)
+            EQ -> f env'' args
 
-        if length args < length argtypes
-            then Just (env'', LMLValueFunc $ lmlCurry func args)
-            else f env'' args
-        
     _ -> error "Expected function call"
 
 lmlEval env (LMLAstBlock list) = case lmlSequencedEval env list of
@@ -75,47 +92,43 @@ lmlEval env (LMLAstList list) = case lmlSequencedEval env list of
 
 lmlEval env (LMLAstLetExpr id expr) = do
     (env', evaledval) <- lmlEval env expr
-    Just $ (lmlEnvInsertData id evaledval env', LMLValueNil)
-
-lmlEval env (LMLAstLambda ids expr) = Just (env, LMLValueFunc (LMLFunction (LMLTrivialType "") (replicate (length ids) (LMLTrivialType "")) (f ids)))
-    where
-        f :: [String] -> LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
-        f ids = \env params -> do
-            (_, res) <- lmlEval (lmlEnvInsertAll (zip ids params) env) expr
-            Just (env, res)
+    Just (lmlEnvInsertData id evaledval env', LMLValueNil)
 
 lmlEval env (LMLAstDataDecl tname ctors) = do
     newt@(LMLCompoundType _ alts) <- lmlGenCompoundType tname (map snd ctors) env
     
-    let env' = lmlEnvInsertType tname newt env
+    let env'      = lmlEnvInsertType tname newt env
     let ctorNames = map fst ctors
-    let allCTors = map (uncurry (lmlGenTypeCTor newt)) (zip ctorNames alts)
-    let env'' = lmlEnvInsertAll (zip ctorNames allCTors) env'
+    let allCTors  = map (uncurry (lmlGenTypeCTor newt)) (zip ctorNames alts)
+    let env''     = lmlEnvInsertAll (zip ctorNames allCTors) env'
 
     Just (env'', LMLValueNil)
 
+lmlEval env (LMLAstLambda ids expr) = Just (env, LMLValueFunc (LMLFunction rettype argtypes f))
+    where
+        rettype  = LMLTrivialType ""
+        argtypes = replicate (length ids) (LMLTrivialType "")
 
-lmlEval env (LMLAstIdent i) = (\d -> (env, d)) <$> lmlEnvlookupData i env
+        f :: LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
+        f env params = do
+            (_, res) <- lmlEval (lmlEnvInsertAll (zip ids params) env) expr
+            Just (env, res)
 
+lmlEval env (LMLAstFunction name rettype args body) = Just (lmlEnvInsertData name (LMLValueFunc (LMLFunction rettype argtypes f)) env, LMLValueNil)
+    where
+        expectedRettype = lmlDetermineType env rettype
+        argtypes        = map (lmlDetermineType env . snd) args
+        argnames        = map fst args
+
+        f :: LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
+        f env params = do
+            guard (and $ map (uncurry lmlTypecheck) (zip argtypes params))
+
+            (_, res) <- lmlEval (lmlEnvInsertAll (zip argnames params) env) body
+
+            guard (lmlTypecheck expectedRettype res)
+            Just (env, res)
+
+
+lmlEval env (LMLAstIdent i) = ((,) env) <$> lmlEnvLookupData i env
 lmlEval env (LMLAstValue v) = Just (env, v)
-
-
-{-
-
-lispEval env (LispFunExpr (id, paramids, expr)) = do
-    (env', func) <- lispEval env (LispLambdaExpr (paramids, expr))
-    Just (insertData id func env', LispNil)
-
-lispEval env (LispInfixExpr (op, a, b)) = do
-    (LispFun f) <- lookupData op env
-    res <- f env [a, b]
-    Just (env, res)
-
-
-lispEval env (LispEnumDecl (ident, alts)) = Just (lispEnvInsertAll (genTypeConstructors (ident, alts)) (lmlEnvInserType (LispTypeTrivial ident) env), LispNil)
-
-lispEval (dat, types) (LispIdent id) = (\val -> ((dat, types), val)) <$> Map.lookup id dat
--}
-
-
-

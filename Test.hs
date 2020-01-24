@@ -10,6 +10,7 @@ import Text.Printf (printf)
 import LMLEval
 import LMLExpr
 import LMLParser
+import LMLPrelude
 
 
 
@@ -21,7 +22,7 @@ assertEq a b msg expr = if a == b
 
 ppEnv :: LMLEnv -> String
 ppEnv (LMLEnv dat types) = 
-    "types:\n " ++ go showTypeDecl types ++ 
+    "types:\n" ++ go showTypeDecl types ++ 
     "values:\n" ++ go showValDecl dat
 
     where
@@ -32,7 +33,11 @@ ppEnv (LMLEnv dat types) =
 
 
 ppExpandType :: LMLType -> String
-ppExpandType (LMLCompoundType _ ctors) = intercalate " | " $ map (unwords . map ppType) ctors
+ppExpandType (LMLCompoundType _ ctors) = intercalate " | " $ map (replaceOnEmpty "()" . unwords . map ppType) ctors
+    where
+        replaceOnEmpty x [] = x
+        replaceOnEmpty _ xs = xs 
+
 ppExpandType t = ppType t
 
 
@@ -74,12 +79,25 @@ doEval env input = do
 
 
 
-env = lmlEnvEmpty
+envSetup = [
+    "data List = Cons Num List | Empty",
+    "fun f (x:[List] -> y:Num -> Num) = 4",
+    "fun h (g:(->->) -> x:Num -> ) = (g x x)",
+    "fun g (x:Num -> Num) = (x + 1)"]
 
-testProgram' = "{ data List = Cons Num List | Empty; [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }" -- todo this should not typecheck
 
-testProgram = "{ data List = Cons Num List | Empty; data Bool = True | False; False }"
+preludeEnv = lmlEnvInsertAllTypes preludeTypes $ lmlEnvInsertAll preludeData $ lmlEnvEmpty
 
 
-test = let (env', res) = fromJust $ doEval env testProgram
+env = fst $ fromJust $ lmlSequencedEval preludeEnv $ map (fst . fromJust . runParser lmlParser) $ envSetup
+
+
+testProgram' = "{ [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }" -- todo this should not typecheck
+testProgram = "{ (f [Empty, (Cons 1 Empty)] 3) }"
+
+
+runLML :: String -> IO ()
+runLML input = let (env', res) = fromJust $ doEval env input
     in putStrLn (ppEnv env') >> putStrLn ("eval result: " ++ ppValWithType res)
+
+test = runLML testProgram

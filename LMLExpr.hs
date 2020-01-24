@@ -56,6 +56,7 @@ data LMLAst
     | LMLAstIdent String
     | LMLAstLetExpr String LMLAst
     | LMLAstLambda [String] LMLAst
+    | LMLAstFunction String LMLType [(String, LMLType)] LMLAst
     | LMLAstDataDecl String [(String, [String])]
     deriving Show
 
@@ -67,12 +68,6 @@ data LMLEnv = LMLEnv { getData :: Map.Map String LMLValue, getTypes :: Map.Map S
 
 lmlEnvEmpty :: LMLEnv
 lmlEnvEmpty = LMLEnv (Map.fromList []) (Map.fromList [])
-
-
-lmlBuiltinTypes :: Map.Map String LMLType
-lmlBuiltinTypes = Map.fromList [
-    ("Num", LMLTrivialType "Num"),
-    ("Char", LMLTrivialType "Char")]
 
 
 lmlEnvDefault :: LMLEnv
@@ -88,18 +83,24 @@ lmlEnvInsertType ident t (LMLEnv dat types) = LMLEnv dat (Map.insert ident t typ
 
 
 lmlEnvInsertAll :: [(String, LMLValue)] -> LMLEnv -> LMLEnv
-lmlEnvInsertAll ((ident, val):xs) (LMLEnv dat types) = lmlEnvInsertAll xs (LMLEnv (Map.insert ident val dat) types)
+lmlEnvInsertAll ((ident, val):xs) env = lmlEnvInsertAll xs $ lmlEnvInsertData ident val env
 lmlEnvInsertAll [] env = env
 
 
-lmlEnvlookupData :: String -> LMLEnv -> Maybe LMLValue
-lmlEnvlookupData k (LMLEnv dat _) = Map.lookup k dat
+lmlEnvInsertAllTypes :: [(String, LMLType)] -> LMLEnv -> LMLEnv
+lmlEnvInsertAllTypes ((ident, t):xs) env = lmlEnvInsertAllTypes xs $ lmlEnvInsertType ident t env
+lmlEnvInsertAllTypes [] env = env
+
+
+lmlEnvLookupData :: String -> LMLEnv -> Maybe LMLValue
+lmlEnvLookupData k (LMLEnv dat _) = Map.lookup k dat
 
 
 lmlEnvLookupType :: String -> LMLEnv -> Maybe LMLType
 lmlEnvLookupType s (LMLEnv _ ts) = Map.lookup s ts
 
 
-lmlDetermineType :: LMLType -> LMLEnv -> LMLType
-lmlDetermineType t@(LMLTrivialType tname) env = maybe t id (lmlEnvLookupType tname env)
-lmlDetermineType t _ = t
+lmlDetermineType :: LMLEnv -> LMLType -> LMLType
+lmlDetermineType env t@(LMLTrivialType tname)   = maybe t id (lmlEnvLookupType tname env)
+lmlDetermineType env (LMLListType tname)        = (LMLListType (lmlDetermineType env tname))
+lmlDetermineType env (LMLFunctionType ret args) = (LMLFunctionType (lmlDetermineType env ret) (map (lmlDetermineType env) args))

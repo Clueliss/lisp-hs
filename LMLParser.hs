@@ -3,29 +3,44 @@ module LMLParser (module LMLParser, module Parser) where
 import Control.Applicative
 import Data.Char
 import qualified Data.Set as Set
+import Data.Tuple
 import Text.Read
 
 import Parser
 import LMLExpr
 
 asciiPunct :: Set.Set Char
-asciiPunct = Set.fromAscList "!$%&*+-/:<>?@^|"
+asciiPunct = Set.fromAscList "!$%&*+-/:<>?@^|="
+
+symbolParser :: Parser String
+symbolParser = some $ parseIf $ flip elem asciiPunct
+
+
+-- x: Int -> y: Int -> Int
+lmlFuncDeclParser :: Parser (LMLType, [(String, LMLType)])
+lmlFuncDeclParser = (\x y -> (y, x))
+    <$> (sepBy (wsP *> strP "->" <* wsP) lmlDeclParser)
+    <*> (wsP *> strP "->" *> wsP *> parseOpt lmlTypeParser (LMLTrivialType ""))
 
 
 lmlDeclParser :: Parser (String, LMLType)
 lmlDeclParser = (,)
         <$> identParser
-        <*> ((wsP *> charP ':' *> wsP *> lmlTypeParser) <|> pure (LMLTrivialType ""))
+        <*> (wsP *> charP ':' *> wsP *> parseOpt lmlTypeParser (LMLTrivialType ""))
 
 
 lmlTypeParser :: Parser LMLType
-lmlTypeParser = (LMLTrivialType <$> identParser) 
+lmlTypeParser = funTP
+    <|> (LMLTrivialType <$> identParser) 
     <|> (LMLListType <$> listTP)
-    <|> (uncurry (flip LMLFunctionType) <$> funTP)
     <|> (LMLCompoundType "Tuple" . (: []) <$> tupleTP)
     
     where
-        funTP = (,) <$> tupleTP <* (wsP *> strP "->" <* wsP) <*> lmlTypeParser
+        optTP = parseOpt lmlTypeParser (LMLTrivialType "")
+
+        funTP = (\x xs -> LMLFunctionType (last xs) (x:(init xs)))
+            <$> (charP '(' *> wsP *> optTP)
+            <*> (some (wsP *> strP "->" *> wsP *> optTP)) <* wsP <* charP ')'
         
         listTP  = (charP '[' *> wsP *> 
             lmlTypeParser 
@@ -51,6 +66,9 @@ lmlStrParser = LMLAstValue . LMLValueList . (LMLList (LMLTrivialType "Char")) . 
 
 lmlIdentParser :: Parser LMLAst
 lmlIdentParser = LMLAstIdent <$> identParser
+
+lmlSymbolParser :: Parser LMLAst
+lmlSymbolParser = LMLAstIdent <$> symbolParser
 
 
 lmlListParser :: Parser LMLAst
@@ -81,6 +99,11 @@ lmlLambdaParser = LMLAstLambda
     <*> (wsP *> strP "->" *> wsP *> lmlParser)
 
 
+lmlFunctionParser :: Parser LMLAst
+lmlFunctionParser = (\funname (ret, args) body -> LMLAstFunction funname ret args body) 
+    <$> (strP "fun" *> wsP *> (identParser <|> symbolParser) <* wsP)
+    <*> (charP '(' *> wsP *> lmlFuncDeclParser <* wsP <* charP ')' <* wsP)
+    <*> (charP '=' *> wsP *> lmlParser)
 
 
 ctorDeclParser :: Parser (String, [String])
@@ -96,32 +119,25 @@ lmlDataDeclParser = LMLAstDataDecl
         
 
 
-{-
+lmlInfixParser :: Parser LMLAst
+lmlInfixParser = (\a op b -> LMLAstSeq [LMLAstIdent op, a, b])
+    <$> (charP '(' *> wsP *> lmlParser)
+    <*> (wsP *> symbolParser <* wsP)
+    <*> (lmlParser <* wsP <* charP ')')
 
-lispFunExpr :: Parser LMLAst
-lispFunExpr = (\ident params body -> LispFunExpr (ident, params, body))
-    <$> (strP "fun" *> wsP *> identParser <* wsP)
-    <*> (charP '(' *> wsP *> (map fst <$> sepBy (wsP *> charP ',' <* wsP) declParser) <* wsP <* charP ')')
-    <*> (wsP *> charP '=' *> wsP *> lispExprParser)
-
-
-lispInfixParser :: Parser LMLAst
-lispInfixParser = (\a op b -> LispInfixExpr (op, a, b))
-    <$> (charP '(' *> wsP *> lispExprParser)
-    <*> (wsP *> (some $ parseIf (flip elem asciiPunct)) <* wsP)
-    <*> (lispExprParser <* wsP <* charP ')')
-
--}
 
 lmlParser :: Parser LMLAst
 lmlParser =
     lmlLetExprParser <|>
     lmlLambdaParser <|>
+    lmlFunctionParser <|>
     lmlDataDeclParser <|>
     lmlStrParser <|>
     lmlCharParser <|>
     lmlNumParser <|>
     lmlIdentParser <|>
+    lmlSymbolParser <|>
     lmlListParser <|>
     lmlBlockParser <|>
+    lmlInfixParser <|>
     lmlSeqParser
