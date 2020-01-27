@@ -42,9 +42,11 @@ ppExpandType t = ppType t
 
 
 ppType :: LMLType -> String
+ppType (LMLTrivialType "")                = "*"
+ppType (LMLGenericType gt)                = "'" ++ gt
 ppType (LMLTrivialType t)                 = t
 ppType (LMLListType t)                    = printf "[%s]" $ ppType t
-ppType (LMLFunctionType rettype argTypes) = printf "%s -> %s" (intercalate " -> " $ map ppType argTypes) (ppType rettype)
+ppType (LMLFunctionType rettype argTypes) = printf "(%s -> %s)" (intercalate " -> " $ map ppType argTypes) (ppType rettype)
 ppType (LMLCompoundType name _)           = name
 ppType (LMLSelfType name)                 = name
 
@@ -82,7 +84,7 @@ doEval env input = do
 envSetup = [
     "data List = Cons Num List | Empty",
     "fun f (x:[List] -> y:Num -> Num) = 4",
-    "fun h (g:(->->) -> x:Num -> ) = (g x x)",
+    "fun h (g:(* -> * -> *) -> x:Num -> *) = (g x x)",
     "fun g (x:Num -> Num) = (x + 1)"]
 
 
@@ -92,8 +94,14 @@ preludeEnv = lmlEnvInsertAllTypes preludeTypes $ lmlEnvInsertAll preludeData $ l
 env = fst $ fromJust $ lmlSequencedEval preludeEnv $ map (fst . fromJust . runParser lmlParser) $ envSetup
 
 
-testProgram' = "{ [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }" -- todo this should not typecheck
+testProgram' = "{ [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }"
 testProgram = "{ (f [Empty, (Cons 1 Empty)] 3) }"
+
+tp = "{ fun const (x:'a -> (* -> 'a)) = fn [x] (_) -> 'a'; ((const 1) 2) }"
+
+
+getLML :: String -> LMLValue
+getLML input = snd $ fromJust $ doEval env input
 
 
 runLML :: String -> IO ()

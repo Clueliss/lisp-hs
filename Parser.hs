@@ -108,7 +108,7 @@ alphaNumParser = parseIf isAlphaNum
 
 
 identParser :: Parser String
-identParser = (:) <$> alphaParser <*> (many (alphaNumParser <|> charP '_'))
+identParser = (:) <$> (alphaParser <|> charP '_') <*> (many (alphaNumParser <|> charP '_'))
 
 
 floatParser :: Parser Double

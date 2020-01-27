@@ -20,7 +20,9 @@ symbolParser = some $ parseIf $ flip elem asciiPunct
 lmlFuncDeclParser :: Parser (LMLType, [(String, LMLType)])
 lmlFuncDeclParser = (\x y -> (y, x))
     <$> (sepBy (wsP *> strP "->" <* wsP) lmlDeclParser)
-    <*> (wsP *> strP "->" *> wsP *> parseOpt lmlTypeParser (LMLTrivialType ""))
+    <*> (wsP *> strP "->" *> wsP *> tp)
+    where
+        tp = ((LMLTrivialType "") <$ strP "*") <|> lmlTypeParser 
 
 
 lmlDeclParser :: Parser (String, LMLType)
@@ -30,17 +32,20 @@ lmlDeclParser = (,)
 
 
 lmlTypeParser :: Parser LMLType
-lmlTypeParser = funTP
+lmlTypeParser = genericTP 
+    <|> funTP
     <|> (LMLTrivialType <$> identParser) 
     <|> (LMLListType <$> listTP)
     <|> (LMLCompoundType "Tuple" . (: []) <$> tupleTP)
     
     where
-        optTP = parseOpt lmlTypeParser (LMLTrivialType "")
+        genericTP = LMLGenericType <$> (charP '\'' *> identParser)
+
+        tp = ((LMLTrivialType "") <$ strP "*") <|> lmlTypeParser
 
         funTP = (\x xs -> LMLFunctionType (last xs) (x:(init xs)))
-            <$> (charP '(' *> wsP *> optTP)
-            <*> (some (wsP *> strP "->" *> wsP *> optTP)) <* wsP <* charP ')'
+            <$> (charP '(' *> wsP *> tp)
+            <*> (some (wsP *> strP "->" *> wsP *> tp)) <* wsP <* charP ')'
         
         listTP  = (charP '[' *> wsP *> 
             lmlTypeParser 
@@ -95,7 +100,8 @@ lmlLetExprParser = LMLAstLetExpr
 
 lmlLambdaParser :: Parser LMLAst
 lmlLambdaParser = LMLAstLambda
-    <$> (strP "fn" *> wsP *> charP '(' *> wsP *> (sepBy wsP identParser) <* wsP <* charP ')')
+    <$> (strP "fn" *> wsP *> parseOpt (charP '[' *> sepBy (wsP *> charP ',' <* wsP) identParser <* charP ']') [])
+    <*> (wsP *> charP '(' *> wsP *> (sepBy wsP identParser) <* wsP <* charP ')')
     <*> (wsP *> strP "->" *> wsP *> lmlParser)
 
 

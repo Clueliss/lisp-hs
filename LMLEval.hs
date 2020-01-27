@@ -1,6 +1,7 @@
 module LMLEval where
 
 import Control.Monad (guard)
+import qualified Data.Map.Strict as Map
 import Text.Printf
 
 import LMLExpr
@@ -8,19 +9,44 @@ import LMLParser
 import Parser
 
 
-lmlTypecheck :: LMLType -> LMLValue -> Bool
-lmlTypecheck t v = lmlTypecheck' t (lmlGetType v)
+lmlTypecheck :: Map.Map String LMLType -> LMLType -> LMLValue -> (Map.Map String LMLType, Bool)
+lmlTypecheck genericIdx t v = lmlTypecheck' genericIdx t (lmlGetType v)
     where
-        lmlTypecheck' (LMLFunctionType lrettype largtypes) (LMLFunctionType rrettype rargtypes) 
-            = (lmlTypecheck' lrettype rrettype) && (and $ map (uncurry lmlTypecheck') (zip largtypes rargtypes))
+        lmlTypecheck' :: Map.Map String LMLType -> LMLType -> LMLType -> (Map.Map String LMLType, Bool)
 
-        lmlTypecheck' (LMLTrivialType "") _ = True
-        lmlTypecheck' (LMLTrivialType l) (LMLTrivialType r)
-            | l == r = True
+        lmlTypecheck' gIndex (LMLGenericType gt) (LMLTrivialType "") = (gIndex, True)
+        lmlTypecheck' gIndex (LMLGenericType gt) t 
+            | gt `Map.member` gIndex = (gIndex,                 (gIndex Map.! gt) == t)
+            | otherwise              = (Map.insert gt t gIndex, True)
 
-        lmlTypecheck' et vt 
-            | et == vt  = True
+        lmlTypecheck' gIndex (LMLFunctionType lrettype largtypes) (LMLFunctionType rrettype rargtypes)
+            = (gIndex'', retMatch && argMatch)
+
+            where
+                typefold (gIdx, lastValid) (l, r) = let (gIdx', thisValid) = lmlTypecheck' gIdx l r
+                    in (gIdx', thisValid && lastValid) 
+
+                (gIndex',  retMatch) = lmlTypecheck' gIndex lrettype rrettype
+                (gIndex'', argMatch) = foldl typefold (gIndex', True) (zip largtypes rargtypes)
+
+
+        lmlTypecheck' gIndex (LMLTrivialType "") _ = (gIndex, True)
+        lmlTypecheck' gIndex (LMLTrivialType l) (LMLTrivialType r)
+            | l == r = (gIndex, True)
+
+        lmlTypecheck' gIndex et vt 
+            | et == vt  = (gIndex, True)
             | otherwise = error (printf "typecheck failed: expected type: %s got: %s instead" (show et) (show vt))
+
+
+sequencedTypecheck :: Map.Map String LMLType -> [(LMLType, LMLValue)] -> (Map.Map String LMLType, Bool)
+sequencedTypecheck genericIndex tv = sequencedTypecheck' True genericIndex tv
+    where
+        sequencedTypecheck' valid gIdx []         = (gIdx, valid)
+        sequencedTypecheck' valid gIdx ((l,r):xs) = let (gIdx', valid') = lmlTypecheck gIdx l r
+            in sequencedTypecheck' (valid && valid') gIdx' xs
+
+
 
 
 lmlGenCompoundType :: String -> [[String]] -> LMLEnv -> Maybe LMLType
@@ -38,7 +64,7 @@ lmlGenCompoundType tname (a:as) env = LMLCompoundType tname <$> (sequence $ map 
 lmlGenTypeCTor :: LMLType -> String  -> [LMLType] -> LMLValue
 lmlGenTypeCTor rettype name []                                       = LMLValueCompound (LMLCompound rettype name [])
 lmlGenTypeCTor rettype@(LMLCompoundType rettypename _) name argtypes = LMLValueFunc $ LMLFunction rettype argtypes $ \env args -> do
-    guard $ and $ map (uncurry lmlTypecheck) $ zip (map collapseSelfType argtypes) args
+    guard $ and $ map (snd . uncurry (lmlTypecheck (Map.fromList []))) $ zip (map collapseSelfType argtypes) args
     Just (env, LMLValueCompound (LMLCompound rettype name args))
 
     where
@@ -104,14 +130,20 @@ lmlEval env (LMLAstDataDecl tname ctors) = do
 
     Just (env'', LMLValueNil)
 
-lmlEval env (LMLAstLambda ids expr) = Just (env, LMLValueFunc (LMLFunction rettype argtypes f))
+lmlEval env (LMLAstLambda captures ids expr) = Just (env, LMLValueFunc (LMLFunction rettype argtypes f))
     where
+        capturedVals = sequence $ map (flip lmlEnvLookupData env) captures
         rettype  = LMLTrivialType ""
         argtypes = replicate (length ids) (LMLTrivialType "")
 
         f :: LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
         f env params = do
-            (_, res) <- lmlEval (lmlEnvInsertAll (zip ids params) env) expr
+            capVals <- capturedVals
+            let env' = lmlEnvInsertAll (zip captures capVals) env
+
+            -- hier typecheck
+
+            (_, res) <- lmlEval (lmlEnvInsertAll (zip ids params) env') expr
             Just (env, res)
 
 lmlEval env (LMLAstFunction name rettype args body) = Just (lmlEnvInsertData name (LMLValueFunc (LMLFunction rettype argtypes f)) env, LMLValueNil)
@@ -120,14 +152,26 @@ lmlEval env (LMLAstFunction name rettype args body) = Just (lmlEnvInsertData nam
         argtypes        = map (lmlDetermineType env . snd) args
         argnames        = map fst args
 
+        resolveGenerics :: Map.Map String LMLType -> LMLType -> LMLType
+        resolveGenerics genericIdx (LMLGenericType gt)        = genericIdx Map.! gt
+        resolveGenerics genericIdx (LMLListType t)            = LMLListType $ resolveGenerics genericIdx t
+        resolveGenerics genericIdx (LMLFunctionType ret args) = LMLFunctionType (resolveGenerics genericIdx ret) (map (resolveGenerics genericIdx) args)
+        resolveGenerics _          t                          = t
+
         f :: LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
-        f env params = do
-            guard (and $ map (uncurry lmlTypecheck) (zip argtypes params))
+        f localEnv params = do
+            let (gIdx, argTypesOk) = sequencedTypecheck (Map.fromList []) (zip argtypes params)
+            guard argTypesOk
 
-            (_, res) <- lmlEval (lmlEnvInsertAll (zip argnames params) env) body
+            (_, res) <- lmlEval (lmlEnvInsertAll (zip argnames params) localEnv) body
 
-            guard (lmlTypecheck expectedRettype res)
-            Just (env, res)
+            let (gIdx', retTypeOk) = lmlTypecheck gIdx expectedRettype res
+            guard retTypeOk
+
+            case res of
+                LMLValueFunc (LMLFunction _ _ f) -> let LMLFunctionType eRetT eArgT = resolveGenerics gIdx' expectedRettype
+                    in Just (env, LMLValueFunc (LMLFunction eRetT eArgT f))
+                other                                  -> Just (env, other) 
 
 
 lmlEval env (LMLAstIdent i) = ((,) env) <$> lmlEnvLookupData i env

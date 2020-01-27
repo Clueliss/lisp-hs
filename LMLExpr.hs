@@ -5,13 +5,12 @@ import qualified Data.Map.Strict as Map
 
 data LMLType
     = LMLTrivialType String
+    | LMLGenericType String
     | LMLListType LMLType
     | LMLFunctionType LMLType [LMLType]
     | LMLCompoundType String [[LMLType]]
     | LMLSelfType String -- for use in recursive compound types
     deriving (Show, Eq, Ord)
-
-
 
 data LMLList     = LMLList LMLType [LMLValue]
     deriving (Show, Eq)
@@ -45,7 +44,7 @@ lmlGetType (LMLValueNum _)                             = LMLTrivialType "Num"
 lmlGetType (LMLValueChar _)                            = LMLTrivialType "Char"
 lmlGetType (LMLValueList (LMLList elemType _))         = LMLListType elemType
 lmlGetType (LMLValueCompound (LMLCompound t active _)) = t
-lmlGetType (LMLValueFunc (LMLFunction ret args _))     = LMLFunctionType ret args
+lmlGetType (LMLValueFunc (LMLFunction ret args _))   = LMLFunctionType ret args
 
 
 data LMLAst
@@ -55,7 +54,7 @@ data LMLAst
     | LMLAstBlock [LMLAst]
     | LMLAstIdent String
     | LMLAstLetExpr String LMLAst
-    | LMLAstLambda [String] LMLAst
+    | LMLAstLambda [String] [String] LMLAst
     | LMLAstFunction String LMLType [(String, LMLType)] LMLAst
     | LMLAstDataDecl String [(String, [String])]
     deriving Show
@@ -101,6 +100,7 @@ lmlEnvLookupType s (LMLEnv _ ts) = Map.lookup s ts
 
 
 lmlDetermineType :: LMLEnv -> LMLType -> LMLType
+lmlDetermineType env t@(LMLGenericType gt)      = t
 lmlDetermineType env t@(LMLTrivialType tname)   = maybe t id (lmlEnvLookupType tname env)
 lmlDetermineType env (LMLListType tname)        = (LMLListType (lmlDetermineType env tname))
 lmlDetermineType env (LMLFunctionType ret args) = (LMLFunctionType (lmlDetermineType env ret) (map (lmlDetermineType env) args))
