@@ -8,7 +8,7 @@ import LMLParser
 
 
 
-type LMLFunc = LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
+type LMLFunc = LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
 
 wrapWithType :: String -> LMLFunc -> LMLValue
 wrapWithType typestr f = LMLValueFunc $ LMLFunction rettype argtypes f  
@@ -35,12 +35,12 @@ preludeData = [
 
 
 
-plus :: LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue)
-plus env [LMLValueNum x, LMLValueNum y] = Just (env, LMLValueNum (x + y))
+plus :: LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
+plus env [LMLValueNum x, LMLValueNum y] = Right (env, LMLValueNum (x + y))
 
 
 equal :: LMLFunc
 equal env [l, r]
-    | l == r    = Just (env, lmlBoolTrue)
-    | otherwise = Just (env, lmlBoolFalse) 
+    | l == r    = Right (env, lmlBoolTrue)
+    | otherwise = Right (env, lmlBoolFalse) 
 

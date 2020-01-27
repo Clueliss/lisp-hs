@@ -18,7 +18,7 @@ data LMLList     = LMLList LMLType [LMLValue]
 data LMLCompound = LMLCompound LMLType String [LMLValue]
     deriving (Show, Eq)
 
-data LMLFunction = LMLFunction LMLType [LMLType] (LMLEnv -> [LMLValue] -> Maybe (LMLEnv, LMLValue))
+data LMLFunction = LMLFunction LMLType [LMLType] (LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue))
 
 instance Eq LMLFunction where
     (==) _ _ = error "Cannot compare functions for equality"
@@ -44,7 +44,7 @@ lmlGetType (LMLValueNum _)                             = LMLTrivialType "Num"
 lmlGetType (LMLValueChar _)                            = LMLTrivialType "Char"
 lmlGetType (LMLValueList (LMLList elemType _))         = LMLListType elemType
 lmlGetType (LMLValueCompound (LMLCompound t active _)) = t
-lmlGetType (LMLValueFunc (LMLFunction ret args _))   = LMLFunctionType ret args
+lmlGetType (LMLValueFunc (LMLFunction ret args _))     = LMLFunctionType ret args
 
 
 data LMLAst
@@ -91,16 +91,14 @@ lmlEnvInsertAllTypes ((ident, t):xs) env = lmlEnvInsertAllTypes xs $ lmlEnvInser
 lmlEnvInsertAllTypes [] env = env
 
 
-lmlEnvLookupData :: String -> LMLEnv -> Maybe LMLValue
-lmlEnvLookupData k (LMLEnv dat _) = Map.lookup k dat
+fromJustOrErr :: e -> Maybe a -> Either e a
+fromJustOrErr e (Just x) = Right x
+fromJustOrErr e Nothing  = Left e
 
 
-lmlEnvLookupType :: String -> LMLEnv -> Maybe LMLType
-lmlEnvLookupType s (LMLEnv _ ts) = Map.lookup s ts
+lmlEnvLookupData :: String -> LMLEnv -> Either String LMLValue
+lmlEnvLookupData k (LMLEnv dat _) = fromJustOrErr "" $ Map.lookup k dat
 
 
-lmlDetermineType :: LMLEnv -> LMLType -> LMLType
-lmlDetermineType env t@(LMLGenericType gt)      = t
-lmlDetermineType env t@(LMLTrivialType tname)   = maybe t id (lmlEnvLookupType tname env)
-lmlDetermineType env (LMLListType tname)        = (LMLListType (lmlDetermineType env tname))
-lmlDetermineType env (LMLFunctionType ret args) = (LMLFunctionType (lmlDetermineType env ret) (map (lmlDetermineType env) args))
+lmlEnvLookupType :: String -> LMLEnv -> Either String LMLType
+lmlEnvLookupType s (LMLEnv _ ts) = fromJustOrErr "" $ Map.lookup s ts

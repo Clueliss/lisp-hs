@@ -2,6 +2,7 @@ module Test where
 
 import Control.Applicative
 import Control.Exception
+import Data.Either
 import Data.List (intercalate)
 import Data.Map (toList)
 import Data.Maybe (fromJust)
@@ -11,13 +12,7 @@ import LMLEval
 import LMLExpr
 import LMLParser
 import LMLPrelude
-
-
-
-assertEq :: Eq a => a -> a -> String -> e -> e
-assertEq a b msg expr = if a == b
-    then expr
-    else error msg
+import Util
 
 
 ppEnv :: LMLEnv -> String
@@ -74,38 +69,42 @@ ppValWithType v = printf "%s :: %s" (ppVal v) (ppType $ lmlGetType v)
 
 
 
-doEval :: LMLEnv -> String -> Maybe (LMLEnv, LMLValue)
+doEval :: LMLEnv -> String -> Either String (LMLEnv, LMLValue)
 doEval env input = do
-    (expr, rest) <- runParser lmlParser input
+    (expr, rest) <- fromJustOrErr "" $ runParser lmlParser input
     lmlEval env expr
 
-
-
-envSetup = [
-    "data List = Cons Num List | Empty",
-    "fun f (x:[List] -> y:Num -> Num) = 4",
-    "fun h (g:(* -> * -> *) -> x:Num -> *) = (g x x)",
-    "fun g (x:Num -> Num) = (x + 1)"]
-
-
+preludeEnv :: LMLEnv
 preludeEnv = lmlEnvInsertAllTypes preludeTypes $ lmlEnvInsertAll preludeData $ lmlEnvEmpty
 
 
-env = fst $ fromJust $ lmlSequencedEval preludeEnv $ map (fst . fromJust . runParser lmlParser) $ envSetup
+envSetup :: [String]
+envSetup = [
+    "data List = Cons Num List | Empty",
+    "fun f ( x:[List] -> y:Num -> Num ) = 4",
+    "fun h ( g:('a -> 'a -> *) -> x:'a -> * ) = (g x x)",
+    "fun g ( x:Num -> Num ) = (x + 1)"]
+
+
+env :: LMLEnv
+env = fst $ unwrapRight $ lmlSequencedEval preludeEnv $ map (fst . fromJust . runParser lmlParser) $ envSetup
 
 
 testProgram' = "{ [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }"
 testProgram = "{ (f [Empty, (Cons 1 Empty)] 3) }"
 
-tp = "{ fun const (x:'a -> (* -> 'a)) = fn [x] (_) -> 'a'; ((const 1) 2) }"
+tp = "{ \
+        \fun const (x:'a -> (* -> 'a)) = fn [x] (_) -> x; \
+        \((const 1) 1) \
+     \}"
 
 
 getLML :: String -> LMLValue
-getLML input = snd $ fromJust $ doEval env input
+getLML input = snd $ unwrapRight $ doEval env input
 
 
 runLML :: String -> IO ()
-runLML input = let (env', res) = fromJust $ doEval env input
+runLML input = let (env', res) = unwrapRight $ doEval env input
     in putStrLn (ppEnv env') >> putStrLn ("eval result: " ++ ppValWithType res)
 
 test = runLML testProgram
