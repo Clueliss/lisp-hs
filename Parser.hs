@@ -32,9 +32,17 @@ instance Alternative Parser where
     (<|>) p1 p2 = Parser $ \input -> runParser p1 input <|> runParser p2 input
 
 
+instance Monad Parser where
+    (>>=) (Parser p) f = Parser $ \input -> case p input of
+        Just (x, rest) -> runParser (f x) rest
+        Nothing        -> Nothing
 
-succeed :: a -> Parser a
-succeed = pure
+
+succeedP :: a -> Parser a
+succeedP = pure
+
+failP :: Parser a
+failP = Parser $ const Nothing
 
 
 charP :: Char -> Parser Char
