@@ -37,6 +37,7 @@ preludeData = [
 
 plus :: LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
 plus env [LMLValueNum x, LMLValueNum y] = Right (env, LMLValueNum (x + y))
+plus _   _                              = Left "invalid call: plus :: Num -> Num -> Num"
 
 
 equal :: LMLFunc
