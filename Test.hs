@@ -82,8 +82,10 @@ envSetup :: [String]
 envSetup = [
     "data List = Cons Num List | Empty",
     "fun f ( x:[List] -> y:Num -> Num ) = 4",
-    "fun h ( g:('a -> 'a -> *) -> x:'a -> * ) = (g x x)",
-    "fun g ( x:Num -> Num ) = (x + 1)"]
+    "fun h ( g:('a -> 'a -> 'b) -> x:'a -> 'b ) = (g x x)",
+    "fun g ( x:Num -> Num ) = (x + 1)",
+    "fun const ( x:'a -> _:* -> 'a ) = x",
+    "fun compose ( f:('b -> 'c) -> g:('a -> 'b) -> x:'a -> 'c ) = (g (f x))"]
 
 
 env :: LMLEnv
@@ -94,7 +96,7 @@ testProgram' = "{ [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }"
 testProgram = "{ (f [Empty, (Cons 1 Empty)] 3) }"
 
 tp = "{ \
-        \fun const (x:'a -> (* -> 'a)) = fn [x] (_) -> x; \
+        \fun const (x:'a -> _:* -> 'a) = x; \
         \((const 1) 1) \
      \}"
 
