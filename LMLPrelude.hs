@@ -43,5 +43,5 @@ plus _   _                              = Left "invalid call: plus :: Num -> Num
 equal :: LMLFunc
 equal env [l, r]
     | l == r    = Right (env, lmlBoolTrue)
-    | otherwise = Right (env, lmlBoolFalse) 
+    | otherwise = Right (env, lmlBoolFalse)
 

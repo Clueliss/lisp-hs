@@ -53,12 +53,40 @@ data LMLAst
     | LMLAstSeq [LMLAst]
     | LMLAstBlock [LMLAst]
     | LMLAstIdent String
-    | LMLAstLetExpr String LMLAst
-    | LMLAstLambda [String] [String] LMLAst
-    | LMLAstFunction String LMLType [(String, LMLType)] LMLAst
-    | LMLAstDataDecl String [(String, [String])]
+    | LMLAstLetExpr  
+        { getLetBindingName :: String, 
+          getLetBindingVal :: LMLAst }
+    | LMLAstLambda 
+        { getLambdaCaptures :: [String], 
+          getLambdaParams :: [String], 
+          getLambdaBody :: LMLAst }
+    | LMLAstFunction 
+        { getFuncName :: String,
+          getFuncType :: LMLType,
+          getFuncParams :: [(String, LMLType)],
+          getFuncBody :: LMLAst }
+    | LMLAstDataDecl 
+        { getDataName :: String,
+          getDataCTors :: [(String, [String])] }
+    | LMLAstCaseExpr 
+        { getCaseInspected :: LMLAst,
+          getCaseArms :: [(LMLPat, LMLAst)] } 
     deriving Show
 
+
+data LMLPatList'
+    = LMLPatListFirstRest LMLPat LMLPat
+    | LMLPatListExplicit [LMLPat]
+    | LMLPatListNil
+    deriving Show
+
+
+data LMLPat
+    = LMLPatIgnore
+    | LMLPatList LMLPatList'
+    | LMLPatData [LMLPat]
+    | LMLPatValue LMLAst
+    deriving Show
 
 
 data LMLEnv = LMLEnv { getData :: Map.Map String LMLValue, getTypes :: Map.Map String LMLType }
@@ -102,3 +130,11 @@ lmlEnvLookupData k (LMLEnv dat _) = fromJustOrErr "" $ Map.lookup k dat
 
 lmlEnvLookupType :: String -> LMLEnv -> Either String LMLType
 lmlEnvLookupType s (LMLEnv _ ts) = fromJustOrErr "" $ Map.lookup s ts
+
+
+lmlHead :: LMLList -> LMLValue
+lmlHead (LMLList t xs) = head xs 
+
+
+lmlTail :: LMLList -> LMLValue
+lmlTail (LMLList t xs) = LMLValueList $ LMLList t (tail xs)

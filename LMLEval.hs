@@ -3,6 +3,11 @@ module LMLEval where
 import Control.Monad (guard)
 import qualified Data.Map.Strict as Map
 import Text.Printf
+import Data.List
+import Data.Either
+import Data.Maybe
+import System.IO.Unsafe
+
 
 import LMLExpr
 import LMLParser
@@ -124,6 +129,50 @@ lmlEval env (LMLAstFunction name rettype args body) = Right (lmlEnvInsertData na
             (_, res) <- lmlEval (lmlEnvInsertAll (zip argnames params) localEnv) body
             Right (localEnv, res)
 
+lmlEval env (LMLAstCaseExpr inspected arms) = do
+    inspected'             <- snd <$> lmlEval env inspected
+    
+    patternsMatched        <- maybeToEither "eval error in pattern" $ sequence $ map (lmlCheckPat env inspected') (map fst arms)
+    firstPatternMatchedIdx <- maybeToEither "no pattern matched" $ findIndex (== True) patternsMatched
+
+    let matched = arms !! firstPatternMatchedIdx
+    env' <- maybeToEither "incompatible pattern type" $ lmlPatModifyEnv inspected' (fst matched) env
+
+    lmlEval env' (snd matched)
+
 
 lmlEval env (LMLAstIdent i) = ((,) env) <$> lmlEnvLookupData i env
 lmlEval env (LMLAstValue v) = Right (env, v)
+
+
+
+lmlCheckPat :: LMLEnv -> LMLValue -> LMLPat -> Maybe Bool
+lmlCheckPat env x                                 (LMLPatValue (LMLAstIdent id))          = case (lmlEnvLookupData id env) of
+    Right val -> Just (x == val)
+    Left _    -> Just True
+
+lmlCheckPat env x                                 (LMLPatValue ast)                       = ((== x) . snd) <$> (eitherToMaybe $ lmlEval env ast)
+lmlCheckPat _   _                                 LMLPatIgnore                            = Just True
+lmlCheckPat _   (LMLValueList (LMLList _ []))     (LMLPatList LMLPatListNil)              = Just True
+lmlCheckPat env (LMLValueList (LMLList t (x:xs))) (LMLPatList (LMLPatListFirstRest p ps)) = do
+    b  <- lmlCheckPat env x p
+    bs <- lmlCheckPat env (LMLValueList (LMLList t xs)) ps
+
+    Just (b && bs)
+
+lmlCheckPat env (LMLValueList (LMLList t xs))     (LMLPatList (LMLPatListExplicit ps))    = and <$> (sequence $ map (uncurry (lmlCheckPat env)) (zip xs ps))
+lmlCheckPat _   _                                 _                                       = Just False
+
+
+
+lmlPatModifyEnv :: LMLValue -> LMLPat -> LMLEnv -> Maybe LMLEnv
+lmlPatModifyEnv val                           (LMLPatValue (LMLAstIdent id))          env = case (lmlEnvLookupData id env) of
+    Right val -> Just env
+    Left _    -> Just $ lmlEnvInsertData id val env
+
+lmlPatModifyEnv val                           (LMLPatValue _)                         env = Just env
+lmlPatModifyEnv val                           (LMLPatIgnore)                          env = Just env
+lmlPatModifyEnv val                           (LMLPatList LMLPatListNil)              env = Just env
+lmlPatModifyEnv (LMLValueList xs)             (LMLPatList (LMLPatListFirstRest p ps)) env = lmlPatModifyEnv (lmlHead xs) p env >>= lmlPatModifyEnv (lmlTail xs) ps
+lmlPatModifyEnv (LMLValueList (LMLList _ xs)) (LMLPatList (LMLPatListExplicit ps))    env = foldl (\e (p,x) -> e >>= lmlPatModifyEnv x p) (Just env) (zip ps xs)
+lmlPatModifyEnv _                             _                                       env = Nothing

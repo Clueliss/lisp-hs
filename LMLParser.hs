@@ -14,7 +14,7 @@ asciiPunct :: Set.Set Char
 asciiPunct = Set.fromAscList "!$%&*+-/:<>?@^|="
 
 symbolParser :: Parser String
-symbolParser = some $ parseIf $ flip elem asciiPunct
+symbolParser = some $ parseIf (`elem` asciiPunct)
 
 
 -- x: Int -> y: Int -> Int
@@ -146,8 +146,17 @@ lmlInfixParser = (\a op b -> LMLAstSeq [LMLAstIdent op, a, b])
     <*> (lmlParser <* wsP <* charP ')')
 
 
+lmlCaseExprParser :: Parser LMLAst
+lmlCaseExprParser = (\inspected patterns -> LMLAstCaseExpr inspected patterns)
+    <$> (strP "case" *> wsP *> lmlParser)
+    <*> (wsP *> strP "of" *> wsP *> sepBy wsP patP)
+    where
+        patP = (,) <$> lmlPatternParser <*> (wsP *> strP "->" *> wsP *> lmlParser)
+
+
 lmlParser :: Parser LMLAst
 lmlParser =
+    lmlCaseExprParser <|>
     lmlLetExprParser <|>
     lmlLambdaParser <|>
     lmlFunctionParser <|>
@@ -161,3 +170,25 @@ lmlParser =
     lmlBlockParser <|>
     lmlInfixParser <|>
     lmlSeqParser
+
+
+lmlPatternParser :: Parser LMLPat
+lmlPatternParser = lmlIgnorePattern
+    <|> lmlListPattern
+    <|> lmlValuePattern
+    <|> lmlDataPattern
+    where
+        lmlIgnorePattern = LMLPatIgnore <$ charP '_'
+
+        lmlValuePattern = LMLPatValue <$> lmlParser
+
+        lmlListPattern 
+            =  LMLPatList <$> 
+            ((LMLPatListNil <$ (charP '[' <* wsP <* charP ']'))
+                <|> (LMLPatListFirstRest 
+                    <$> (charP '(' *> wsP *> lmlPatternParser)
+                    <*> (wsP *> charP ':' *> wsP *> lmlPatternParser <* wsP <* charP ')'))
+
+                <|> (LMLPatListExplicit <$> (charP '[' *> wsP *> sepBy (wsP *> charP ',' <* wsP) lmlPatternParser <* wsP <* charP ']')))
+
+        lmlDataPattern = Parser $ const Nothing -- TODO
