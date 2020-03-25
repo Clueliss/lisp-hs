@@ -1,0 +1,63 @@
+Everything is an expression.
+
+Basics:
+    Ident:  ((_|[a-zA-Z])(_|[a-zA-Z0-9])*
+    Symbol: [!$%&*+-/:<>?@^|=]*
+        
+    Unit:   ()
+    String: "..."
+    Num:    1 or 2.3
+    Char:   '.'
+    List:   [expr1, ...]
+    Bool:   True | False (is defined via data)
+    Block:  { expr1; ...; exprn } will yield exprn
+    Seq:    (Ident expr1 ...) or (expr1 Symbol expr2) are function calls
+
+    AnonymousFunction: fn [capture1, ...](arg1 ...) -> expr (find better syntax)
+    
+Types:
+    Builtin:      Unit, Char, Num, String
+    Generic:      'a
+    Arbitrary:    *
+    ListType:     [Type]
+    FunctionType: (Type -> ... -> ReturnType)
+    
+Declarations (these all yield ()):
+    
+    FunctionSyntax 1:  fun f arg1 ... :: Type1 -> ... -> ReturnType = Expr
+    FunctionSyntax 2:  fun f(arg1:Type1 -> ... -> ReturnType) = Expr
+    
+    Binding: let name = expr
+    
+    
+Conditionals:
+    If: if exprCondition 
+        then exprTrue 
+        else exprFalse
+    
+    Case:
+        case exprValue of
+            pattern1 -> expr1
+            pattern2 -> expr2
+            ...
+    
+Patterns:
+    let x be a defined value
+    let y not be a defined value
+    let m be the matched upon value
+
+    
+    _ : ignore Pattern, will always match
+    x : match if x == m
+    y : always match, define y := m
+    
+    []     : empty list pattern
+    (x:xs) : list pattern, define x := (head m) and xs := (tail m)
+    
+    TODO Data Patterns (not yet implemented)
+    
+Data:
+    data TypeName = 
+        CTor1 Type1 Type2 |
+        CTor2 Type3 Type4 | ...
+        
