@@ -7,6 +7,7 @@ import Data.List (intercalate)
 import Data.Map (toList)
 import Data.Maybe (fromJust)
 import Text.Printf (printf)
+import Control.Monad.State
 
 import LMLEval
 import LMLExpr
@@ -52,6 +53,7 @@ ppVal = ppVal' 0
         ppVal' _     LMLValueNil                                    = "()"
         ppVal' _     (LMLValueNum x)                                = show x
         ppVal' _     (LMLValueChar ch)                              = show ch
+        ppVal' _     (LMLValueBool b)                               = show b
         ppVal' _     (LMLValueCompound (LMLCompound _ active []))   = active
         ppVal' depth (LMLValueList (LMLList _ xs))                  = "[" ++ intercalate ", " (map (ppVal' depth) xs) ++ "]"
         ppVal' depth (LMLValueCompound (LMLCompound _ active vals)) = if depth > 0
@@ -71,8 +73,9 @@ ppValWithType v = printf "%s :: %s" (ppVal v) (ppType $ lmlGetType v)
 
 doEval :: LMLEnv -> String -> Either String (LMLEnv, LMLValue)
 doEval env input = do
-    (expr, rest) <- fromJustOrErr "" $ runParser lmlParser input
+    (expr, rest) <- maybeToEither "invalid lml" $ runParser lmlParser input
     lmlEval env expr
+
 
 preludeEnv :: LMLEnv
 preludeEnv = lmlEnvInsertAllTypes preludeTypes $ lmlEnvInsertAll preludeData $ lmlEnvEmpty
@@ -80,25 +83,16 @@ preludeEnv = lmlEnvInsertAllTypes preludeTypes $ lmlEnvInsertAll preludeData $ l
 
 envSetup :: [String]
 envSetup = [
-    "data List = Cons Num List | Empty",
-    "fun f ( x:[List] -> y:Num -> Num ) = 4",
-    "fun h ( g:('a -> 'a -> 'b) -> x:'a -> 'b ) = (g x x)",
-    "fun g ( x:Num -> Num ) = (x + 1)",
-    "fun const ( x:'a -> _:* -> 'a ) = x",
-    "fun compose ( f:('b -> 'c) -> g:('a -> 'b) -> x:'a -> 'c ) = (g (f x))"]
+    "data List = Cons * List | Nil",
+    "fun f x y :: [List] -> Num -> Num = 4",
+    "fun h g x :: ('a -> 'a -> 'b) -> 'a -> 'b = (g x x)",
+    "fun g x :: Num -> Num = (x + 1)",
+    "fun const x _ :: 'a -> * -> 'a = x",
+    "fun compose f g x :: ('b -> 'c) -> ('a -> 'b) -> 'a -> 'c = (g (f x))"]
 
 
 env :: LMLEnv
 env = fst $ unwrapRight $ lmlSequencedEval preludeEnv $ map (fst . fromJust . runParser lmlParser) $ envSetup
-
-
-testProgram' = "{ [ (Cons 0 (Cons 1 (Cons 1.2 Empty))), (Cons 0 Empty) ] }"
-testProgram = "{ (f [Empty, (Cons 1 Empty)] 3) }"
-
-tp = "{ \
-        \fun const (x:'a -> _:* -> 'a) = x; \
-        \((const 1) 1) \
-     \}"
 
 
 getLML :: String -> LMLValue
@@ -109,4 +103,26 @@ runLML :: String -> IO ()
 runLML input = let (env', res) = unwrapRight $ doEval env input
     in putStrLn (ppEnv env') >> putStrLn ("eval result: " ++ ppValWithType res)
 
-test = runLML testProgram
+
+lmlInteractive :: LMLEnv -> IO ()
+lmlInteractive e = do
+    putStr "lml> "
+    input <- getLine
+
+    case input of 
+        (':':'q':[])       -> pure ()
+        (':':'r':[])       -> lmlInteractive env -- TODO properly reset
+        
+        (':':'t':' ':code) -> case doEval e code of
+            Right (e', val) -> putStrLn (ppType $ lmlGetType val) >> lmlInteractive e
+            Left err        -> putStrLn ("Error: " ++ err)        >> lmlInteractive e
+        
+        (':':'v':' ':code) -> case doEval e code of
+            Right (e', val) -> putStrLn (ppValWithType val) >> lmlInteractive e'
+            Left err        -> putStrLn ("Error: " ++ err)  >> lmlInteractive e
+
+        (':':_)            -> putStrLn "Unknown command" >> lmlInteractive e
+
+        code -> case doEval e code of
+            Right (e', val) -> putStrLn (ppVal val)        >> lmlInteractive e'
+            Left err        -> putStrLn ("Error: " ++ err) >> lmlInteractive e

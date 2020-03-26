@@ -13,10 +13,10 @@ Basics:
     Block:  { expr1; ...; exprn } will yield exprn
     Seq:    (Ident expr1 ...) or (expr1 Symbol expr2) are function calls
 
-    AnonymousFunction: fn [capture1, ...](arg1 ...) -> expr (find better syntax)
+    AnonymousFunction: fn [capture1, ...] arg1 ... -> expr  --TODO (find better syntax)
     
 Types:
-    Builtin:      Unit, Char, Num, String
+    Builtin:      (), Char, Num, String
     Generic:      'a
     Arbitrary:    *
     ListType:     [Type]
@@ -60,4 +60,3 @@ Data:
     data TypeName = 
         CTor1 Type1 Type2 |
         CTor2 Type3 Type4 | ...
-        

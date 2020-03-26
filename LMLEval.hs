@@ -16,15 +16,16 @@ import Parser
 import Util
 
 
-lmlGenCompoundType :: String -> [[String]] -> LMLEnv -> Either String [[LMLType]]
-lmlGenCompoundType tname (a:as) env = fromJustOrErr "" $ sequence $ map sequence $ go (a:as)
+lmlGenCompoundType :: String -> [[LMLType]] -> LMLEnv -> [[LMLType]]
+lmlGenCompoundType tname as env = go as
     where
         go []     = []
-        go (x:xs) = (map (fmap (detType . fst)) $ (map (runParser lmlTypeParser) x)) : go xs
+        go (x:xs) = (map detType x) : go xs
 
-        detType t@(LMLTrivialType name)
+        detType (LMLTrivialType name)
             | name == tname = LMLSelfType name
         detType t = lmlDetermineType env t
+
 
 
 lmlGenTypeCTor :: LMLType -> String  -> [LMLType] -> LMLValue
@@ -34,17 +35,20 @@ lmlGenTypeCTor rettype@(LMLCompoundType rettypename _) name argtypes = LMLValueF
     Right (env, LMLValueCompound (LMLCompound rettype name args))
 
 
+
 lmlCurry :: LMLFunction -> [LMLValue] -> LMLFunction
 lmlCurry (LMLFunction rt at f) curriedArgs = LMLFunction rt (drop (length curriedArgs) at) $ \env args -> f env (curriedArgs ++ args)
+
 
 
 lmlSequencedEval :: LMLEnv -> [LMLAst] -> Either String (LMLEnv, [LMLValue])
 lmlSequencedEval env = foldl f (Right (env, []))
     where
-        f (Left e) _ = (Left e)
+        f (Left e) _                = Left e
         f (Right (env', vals)) next = do
             (env'', val) <- lmlEval env' next
             Right (env'', vals ++ [val])
+
 
 
 lmlEval :: LMLEnv -> LMLAst -> Either String (LMLEnv, LMLValue)
@@ -76,6 +80,33 @@ lmlEval env (LMLAstSeq (x:xs)) = case lmlEval env x of
     Right (_, v) -> Left (printf "Tried to call %s which is not a function" (show v))
     Left e       -> Left e
 
+lmlEval env (LMLAstInfix (Just left) (Just right) op) = lmlEval env (LMLAstSeq [LMLAstIdent op, left, right])
+
+lmlEval env (LMLAstInfix (Just left) Nothing op) = case lmlEval env (LMLAstIdent op) of 
+    Right (_, LMLValueFunc func@(LMLFunction rettype argtypes f)) -> do
+        guardWithErr "expected binary function in infix expression" (length argtypes == 2)
+        (env', left') <- lmlEval env left
+
+        let (_, argOk) = lmlTypecheck (Map.fromList []) (lmlDetermineType env (head argtypes)) left'
+
+        guardWithErr "left operand of binary expression has incorrect type" argOk
+
+        Right (env', LMLValueFunc $ lmlCurry func [left'])
+
+lmlEval env (LMLAstInfix Nothing (Just right) op) = case lmlEval env (LMLAstIdent op) of
+    Right (_, LMLValueFunc func@(LMLFunction rettype argtypes f)) -> do
+        guardWithErr "expected binary function in infix expression" (length argtypes == 2)
+        (env', right') <- lmlEval env right
+
+        let (_, argOk) = lmlTypecheck (Map.fromList []) (lmlDetermineType env (argtypes !! 1)) right'
+
+        guardWithErr "left operand of binary expression has incorrect type" argOk
+
+        let f' e [l] = f e [l, right']
+
+        Right (env', LMLValueFunc $ LMLFunction rettype (tail argtypes) f')
+
+
 lmlEval env (LMLAstBlock list) = case lmlSequencedEval env list of
     Right (env', [])   -> Right (env', LMLValueNil)
     Right (env', vals) -> Right (env', last vals)
@@ -94,9 +125,9 @@ lmlEval env (LMLAstLetExpr id expr) = do
     Right (lmlEnvInsertData id evaledval env', LMLValueNil)
 
 lmlEval env (LMLAstDataDecl tname ctors) = do
-    ctorTypes <- lmlGenCompoundType tname (map snd ctors) env
+    let ctorTypes = lmlGenCompoundType tname (map snd ctors) env
 
-    let newt = LMLCompoundType tname ctorTypes
+    let newt      = LMLCompoundType tname ctorTypes
     
     let env'      = lmlEnvInsertType tname newt env
     let ctorNames = map fst ctors
@@ -140,6 +171,13 @@ lmlEval env (LMLAstCaseExpr inspected arms) = do
 
     lmlEval env' (snd matched)
 
+lmlEval env (LMLAstIfExpr cond ifTrue ifFalse) = do
+    (env', cond') <- lmlEval env cond
+
+    case cond' of 
+        LMLValueBool True  -> lmlEval env' ifTrue
+        LMLValueBool False -> lmlEval env' ifFalse
+        _                                                                           -> Left (printf "condition in if (%s) is not Bool" (show cond'))
 
 lmlEval env (LMLAstIdent i) = ((,) env) <$> lmlEnvLookupData i env
 lmlEval env (LMLAstValue v) = Right (env, v)

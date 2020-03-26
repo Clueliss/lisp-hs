@@ -16,22 +16,12 @@ wrapWithType typestr f = LMLValueFunc $ LMLFunction rettype argtypes f
         LMLFunctionType rettype argtypes = fst $ fromJust $ runParser lmlTypeParser typestr
 
 
-
-lmlBoolType = LMLCompoundType "Bool" [[], []]
-
-lmlBoolTrue  = LMLValueCompound $ LMLCompound lmlBoolType "True" []
-lmlBoolFalse = LMLValueCompound $ LMLCompound lmlBoolType "False" []
-
-
-
-preludeTypes = [
-    ("Bool", lmlBoolType)]
+preludeTypes = []
 
 preludeData = [
     ("+",     wrapWithType "(Num -> Num -> Num)" plus),
-    ("==",    LMLValueFunc $ LMLFunction lmlBoolType [LMLTrivialType "Num", LMLTrivialType "Num"] equal),
-    ("True",  lmlBoolTrue),
-    ("False", lmlBoolFalse)]
+    ("/",     wrapWithType "(Num -> Num -> Num)" divide),
+    ("==",    wrapWithType "(* -> * -> Bool)" equal)]
 
 
 
@@ -39,9 +29,12 @@ plus :: LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
 plus env [LMLValueNum x, LMLValueNum y] = Right (env, LMLValueNum (x + y))
 plus _   _                              = Left "invalid call: plus :: Num -> Num -> Num"
 
+divide :: LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
+divide env [LMLValueNum x, LMLValueNum y] = Right (env, LMLValueNum (x / y))
+divide _   _                              = Left "invalid call: divide :: Num -> Num -> Num"
 
 equal :: LMLFunc
 equal env [l, r]
-    | l == r    = Right (env, lmlBoolTrue)
-    | otherwise = Right (env, lmlBoolFalse)
+    | l == r    = Right (env, LMLValueBool True)
+    | otherwise = Right (env, LMLValueBool False)
 
