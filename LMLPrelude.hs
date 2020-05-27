@@ -29,6 +29,7 @@ preludeTypes = [
 
 preludeData = [
     ("+",     wrapWithType "(Num -> Num -> Num)" plus),
+    ("/",     wrapWithType "(Num -> Num -> Num)" divide),
     ("==",    LMLValueFunc $ LMLFunction lmlBoolType [LMLTrivialType "Num", LMLTrivialType "Num"] equal),
     ("True",  lmlBoolTrue),
     ("False", lmlBoolFalse)]
@@ -37,7 +38,13 @@ preludeData = [
 
 plus :: LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
 plus env [LMLValueNum x, LMLValueNum y] = Right (env, LMLValueNum (x + y))
-plus _   _                              = Left "invalid call: plus :: Num -> Num -> Num"
+plus _   _                              = Left "invalid call: + :: Num -> Num -> Num"
+
+
+divide :: LMLEnv -> [LMLValue] -> Either String (LMLEnv, LMLValue)
+divide env [LMLValueNum x, LMLValueNum y] = Right (env, LMLValueNum (x / y))
+divide _   _                              = Left "invalid call to / :: Num -> Num -> Num"
+
 
 
 equal :: LMLFunc
