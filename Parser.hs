@@ -10,6 +10,7 @@ newtype Parser a = Parser {
     runParser :: String -> Maybe (a, String)
 }
 
+
 instance Functor Parser where
     fmap f p = Parser $ \input -> do
         (val, rest) <- runParser p input
@@ -82,11 +83,12 @@ parseIf f = Parser $ g
         g (x:xs) | f x = Just (x, xs)
         g _ = Nothing
 
+
 parseOpt :: Parser a -> a -> Parser a
 parseOpt p def = Parser $ f
     where
         f input = case runParser p input of
-            (Just x) -> Just x
+            Just x   -> Just x
             Nothing  -> Just (def, input)
         
 

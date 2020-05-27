@@ -1,14 +1,20 @@
 module LMLExpr where
 
 import Data.List
+import Text.Printf
+import Util
 import qualified Data.Map.Strict as Map
 
 data LMLType
     = LMLTrivialType String
     | LMLGenericType String
     | LMLListType LMLType
-    | LMLFunctionType LMLType [LMLType]
-    | LMLCompoundType String [[LMLType]]
+    | LMLFunctionType {
+        getReturnType :: LMLType,
+        getParamTypes :: [LMLType] }
+    | LMLCompoundType {
+        getTypename :: String,
+        getCTorTypes :: [[LMLType]] }
     | LMLSelfType String -- for use in recursive compound types
     deriving (Show, Eq, Ord)
 
@@ -32,6 +38,7 @@ data LMLValue
     = LMLValueNil
     | LMLValueNum Double
     | LMLValueChar Char
+    | LMLValueBool Bool
     | LMLValueList LMLList
     | LMLValueCompound LMLCompound
     | LMLValueFunc LMLFunction
@@ -42,6 +49,7 @@ lmlGetType :: LMLValue -> LMLType
 lmlGetType LMLValueNil                                 = LMLTrivialType "()"
 lmlGetType (LMLValueNum _)                             = LMLTrivialType "Num"
 lmlGetType (LMLValueChar _)                            = LMLTrivialType "Char"
+lmlGetType (LMLValueBool _)                            = LMLTrivialType "Bool"
 lmlGetType (LMLValueList (LMLList elemType _))         = LMLListType elemType
 lmlGetType (LMLValueCompound (LMLCompound t active _)) = t
 lmlGetType (LMLValueFunc (LMLFunction ret args _))     = LMLFunctionType ret args
@@ -51,6 +59,10 @@ data LMLAst
     = LMLAstValue LMLValue
     | LMLAstList [LMLAst]
     | LMLAstSeq [LMLAst]
+    | LMLAstInfix 
+        { getLeftOperand :: Maybe LMLAst,
+          getRightOperand :: Maybe LMLAst,
+          getOperator :: String }
     | LMLAstBlock [LMLAst]
     | LMLAstIdent String
     | LMLAstLetExpr  
@@ -67,10 +79,14 @@ data LMLAst
           getFuncBody :: LMLAst }
     | LMLAstDataDecl 
         { getDataName :: String,
-          getDataCTors :: [(String, [String])] }
+          getDataCTors :: [(String, [LMLType])] }
     | LMLAstCaseExpr 
         { getCaseInspected :: LMLAst,
-          getCaseArms :: [(LMLPat, LMLAst)] } 
+          getCaseArms :: [(LMLPat, LMLAst)] }
+    | LMLAstIfExpr
+        { getConditionAst :: LMLAst,
+          getTrueAst :: LMLAst,
+          getFalseAst :: LMLAst }
     deriving Show
 
 
@@ -119,17 +135,12 @@ lmlEnvInsertAllTypes ((ident, t):xs) env = lmlEnvInsertAllTypes xs $ lmlEnvInser
 lmlEnvInsertAllTypes [] env = env
 
 
-fromJustOrErr :: e -> Maybe a -> Either e a
-fromJustOrErr e (Just x) = Right x
-fromJustOrErr e Nothing  = Left e
-
-
 lmlEnvLookupData :: String -> LMLEnv -> Either String LMLValue
-lmlEnvLookupData k (LMLEnv dat _) = fromJustOrErr "" $ Map.lookup k dat
+lmlEnvLookupData k (LMLEnv dat _) = maybeToEither (printf "did not find value '%s' in env" k) $ Map.lookup k dat
 
 
 lmlEnvLookupType :: String -> LMLEnv -> Either String LMLType
-lmlEnvLookupType s (LMLEnv _ ts) = fromJustOrErr "" $ Map.lookup s ts
+lmlEnvLookupType s (LMLEnv _ ts) = maybeToEither (printf "did not find type '%s' in env" s) $ Map.lookup s ts
 
 
 lmlHead :: LMLList -> LMLValue

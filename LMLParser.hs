@@ -67,6 +67,10 @@ lmlStrParser :: Parser LMLAst
 lmlStrParser = LMLAstValue . LMLValueList . (LMLList (LMLTrivialType "Char")) . map LMLValueChar <$> (charP '"' *> many normalCharParser <* charP '"')
 
 
+lmlBoolParser :: Parser LMLAst
+lmlBoolParser = LMLAstValue . LMLValueBool <$> ((True <$ strP "True") <|> (False <$ strP "False"))
+
+
 lmlIdentParser :: Parser LMLAst
 lmlIdentParser = LMLAstIdent <$> identParser
 
@@ -99,7 +103,7 @@ lmlLetExprParser = LMLAstLetExpr
 lmlLambdaParser :: Parser LMLAst
 lmlLambdaParser = LMLAstLambda
     <$> (strP "fn" *> wsP *> parseOpt (charP '[' *> sepBy (wsP *> charP ',' <* wsP) identParser <* charP ']') [])
-    <*> (wsP *> charP '(' *> wsP *> (sepBy wsP identParser) <* wsP <* charP ')')
+    <*> (wsP *> (sepBy wsP identParser) <* wsP)
     <*> (wsP *> strP "->" *> wsP *> lmlParser)
 
 
@@ -110,6 +114,7 @@ lmlFunctionParser = (\funname (ret, args) body -> LMLAstFunction funname ret arg
     <$> (strP "fun" *> wsP *> (identParser <|> symbolParser) <* wsP)
     <*> (charP '(' *> wsP *> lmlFuncDeclParser <* wsP <* charP ')' <* wsP)
     <*> (charP '=' *> wsP *> lmlParser)
+
 
 
 -- example: fun compose f g x :: ('a -> 'b) -> ('a -> 'b) -> 'a -> 'c = (f (g x))
@@ -126,10 +131,12 @@ lmlAltFuncParser =
             else failP)
 
 
-ctorDeclParser :: Parser (String, [String])
+
+ctorDeclParser :: Parser (String, [LMLType])
 ctorDeclParser = (,) 
     <$> (identParser <* wsP)
-    <*> (sepBy wsP identParser)
+    <*> (sepBy wsP lmlTypeParser)
+
 
 
 lmlDataDeclParser :: Parser LMLAst
@@ -140,10 +147,10 @@ lmlDataDeclParser = LMLAstDataDecl
 
 
 lmlInfixParser :: Parser LMLAst
-lmlInfixParser = (\a op b -> LMLAstSeq [LMLAstIdent op, a, b])
-    <$> (charP '(' *> wsP *> lmlParser)
+lmlInfixParser = (\a op b -> LMLAstInfix a b op)
+    <$> (charP '(' *> wsP *> (maybeParse lmlParser))
     <*> (wsP *> symbolParser <* wsP)
-    <*> (lmlParser <* wsP <* charP ')')
+    <*> ((maybeParse lmlParser) <* wsP <* charP ')')
 
 
 lmlCaseExprParser :: Parser LMLAst
@@ -154,18 +161,27 @@ lmlCaseExprParser = (\inspected patterns -> LMLAstCaseExpr inspected patterns)
         patP = (,) <$> lmlPatternParser <*> (wsP *> strP "->" *> wsP *> lmlParser)
 
 
+lmlIfExprParser :: Parser LMLAst
+lmlIfExprParser = LMLAstIfExpr
+    <$> (strP "if" *> wsP *> lmlParser)
+    <*> (wsP *> strP "then" *> wsP *> lmlParser)
+    <*> (wsP *> strP "else" *> wsP *> lmlParser)
+
+
 lmlParser :: Parser LMLAst
 lmlParser =
+    lmlBoolParser <|>
     lmlCaseExprParser <|>
+    lmlIfExprParser <|>
     lmlLetExprParser <|>
     lmlLambdaParser <|>
-    lmlFunctionParser <|>
+    lmlAltFuncParser <|>
     lmlDataDeclParser <|>
     lmlStrParser <|>
     lmlCharParser <|>
     lmlNumParser <|>
     lmlIdentParser <|>
-    lmlSymbolParser <|>
+    -- lmlSymbolParser <|> Hopefully this did not break anything
     lmlListParser <|>
     lmlBlockParser <|>
     lmlInfixParser <|>

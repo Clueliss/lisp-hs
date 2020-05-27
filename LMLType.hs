@@ -79,5 +79,6 @@ lmlDetermineType :: LMLEnv -> LMLType -> LMLType
 lmlDetermineType env t@(LMLGenericType gt)      = t
 lmlDetermineType env t@(LMLSelfType self)       = t
 lmlDetermineType env t@(LMLTrivialType tname)   = either (const t) id (lmlEnvLookupType tname env)
-lmlDetermineType env (LMLListType tname)        = (LMLListType (lmlDetermineType env tname))
-lmlDetermineType env (LMLFunctionType ret args) = (LMLFunctionType (lmlDetermineType env ret) (map (lmlDetermineType env) args))
+lmlDetermineType env (LMLListType tname)        = LMLListType (lmlDetermineType env tname)
+lmlDetermineType env (LMLFunctionType ret args) = LMLFunctionType (lmlDetermineType env ret) (map (lmlDetermineType env) args)
+lmlDetermineType env t@(LMLCompoundType _ _)    = t -- DONT KNOW IF THIS IS CORRECT
